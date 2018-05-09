@@ -101,7 +101,8 @@ class ArchiverEventSource(object):
                 # because since is a tuple^
                 _to = _munge_time(until, self.tz)
                 params = {'pv': pv, 'from': _from, 'to': _to}
-                desc = {'time': header['start']['time'],
+                desc = {'name' : 'archiver_{}'.format(name),
+                        'time': header['start']['time'],
                         'uid': 'empheral-' + str(uuid.uuid4()),
                         'data_keys': data_keys,
                         'run_start': header['start']['uid'],
@@ -167,20 +168,103 @@ class ArchiverEventSource(object):
 
         yield 'stop', header['stop']
 
-
-    def tables_given_header(self, header, stream_name = 'ALL',
-                            fields=None, convert_times=True,
-                            timezone=None, localize_times=True):
+    def _table_given_times(self, pv, since, until):
 
         """
-        Make a table (pandas.DataFrame) from given Header.
+        Make the PV table (pandas.DataFrame) for given time interval.
+        Parameters
+        ----------
+        pv: str
+            EPICS PV name
+        since: timestamp
+            beginning of the time interval
+        until: timestamp
+            end of the time interval
+        timezone: str, optional
+            e.g., 'US/Eastern'
+        Returns
+        -------
+        table: pandas.DataFrame with pv's time/data rows
+        """
+        
+        _from = _munge_time(since, self.tz)
+        _to = _munge_time(until, self.tz)
+
+        params = {'pv': pv, 'from': _from, 'to': _to}
+            
+        req = requests.get(self.archiver_addr, params=params, stream=True)
+        req.raise_for_status()
+        raw, = req.json()
+            
+        secs = [x['secs'] for x in raw['data']]
+        nanos = [x['nanos'] for x in raw['data']]
+        data = [x['val'] for x in raw['data']]
+
+        asecs = np.asarray(secs)
+        ananos = np.asarray(nanos)
+        times = asecs*1.0e+3 + ananos*1.0e-6
+
+        datetimes = pd.to_datetime(times, unit='ms')
+
+        df = pd.DataFrame()
+        df['time'] = datetimes.values
+        df['data'] = data
+
+        return df
+
+    def tables_given_times(self, since, until):
+
+        """
+        Make the PV tables (pandas.DataFrame) for given time interval.
+        Parameters
+        ----------
+        since: timestamp
+            beginning of the time interval
+        until: timestamp
+            end of the time interval
+        timezone: str, optional
+            e.g., 'US/Eastern'
+        Returns
+        -------
+        table: dictionary of the pv pandas.DataFrames
+        """
+
+        dfs = {}
+        for key in self.pvs.keys():
+            dfs[key] = self._table_given_times(self.pvs[key], since, until)
+            
+        return dfs
+
+    def tables_given_header(self, header):
+        """
+        Make the PV tables (pandas.DataFrame) from given Header..
         Parameters
         ----------
         header: Header
             The header to fetch the table for
+        Returns
+        -------
+        table: dictionary of the pv pandas.DataFrames
+        """
+        
+        since, until = header['start']['time'], header['stop']['time']
+
+        return self.tables_given_times(since, until)
+
+ 
+    def table_given_header(self, header, stream_name = 'ALL',
+                            fields=None, convert_times=True,
+                            timezone=None, localize_times=True):
+
+        """
+        Make the PV tables (pandas.DataFrame) from given Header.
+        Parameters
+        ----------
+        header: Header
+            The header to fetch the table for
+        stream_name: string, 
+            PV stream_name (e.g., archiver_PV1)
         fields: list, not used
-            names of interest are defined via user-defined PVs
-        stream_name: string, not used
             names of interest are defined via user-defined PVs
         convert_times: bool, optional
             Whether to convert times from float (seconds since 1970) to
@@ -193,7 +277,7 @@ class ArchiverEventSource(object):
             True (the default) the time stamps are converted to the localtime zone.
         Returns
         -------
-        table: pandas.DataFrame
+        tables: dictionary of the pv pandas.DataFrames
         """
         
         if timezone is None:
@@ -202,42 +286,18 @@ class ArchiverEventSource(object):
         desc_uids = {}
 
         since, until = header['start']['time'], header['stop']['time']
-        _from = _munge_time(since, self.tz)
-        _to = _munge_time(until, self.tz)
+  
+        df = pd.DataFrame()
 
-        dfs = {}
+        if stream_name in self.stream_names_given_header(header):
+            name = stream_name[9:] # archiver_<name>
+            pv = self.pvs[name]
+            df = self._table_given_times(pv, since, until)
+            df.rename(columns = {"time": "time", "data" : stream_name}, inplace=True)
+            new_index = np.arange(1, df.index.size +1)
+            df.index = new_index
 
-        for d in self.descriptors_given_header(header):
-            
-            # Stash the desc uids in a local var so we can use them in events.
-            name = list(d['data_keys'].keys())[0]
-            pv = list(d['data_keys'].values())[0]['source']
-            desc_uids[pv] = d['uid']
-            
-            params = {'pv': pv, 'from': _from, 'to': _to}
-            
-            req = requests.get(self.archiver_addr, params=params, stream=True)
-            req.raise_for_status()
-            raw, = req.json()
-            
-            secs = [x['secs'] for x in raw['data']]
-            nanos = [x['nanos'] for x in raw['data']]
-            data = [x['val'] for x in raw['data']]
-
-            asecs = np.asarray(secs)
-            ananos = np.asarray(nanos)
-            times = asecs*1.0e+3 + ananos*1.0e-6
-
-            datetimes = pd.to_datetime(times, unit='ms')
-
-            df = pd.DataFrame()
-            df['time'] = datetimes.values
-            df['data'] = data
-
-            dfs[name] = df
-
-            return dfs
-
+        return df
  
 def _munge_time(t, timezone):
     """Close your eyes and trust @arkilic
