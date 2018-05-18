@@ -13,14 +13,17 @@ assets:
         host: 'xf23id-ca'
         port: 27017
         database: 'filestore'
-archivers:
-    module: databroker.eventsource.archiver
-    class: ArchiverReader
-    config:
-        arch_csx: 
-             url: 'http://xf23id-ca.cs.nsls2.local:17668'
-        arch_acc:
-             url: 'http://arcapp01.cs.nsls2.local:17668'
-             pvs:
-                  test_watT: 'UT:SB1-Cu:1{}T:Prmry-I'
+event_sources:
+    - module: databroker.eventsource.archiver
+      class: ArchiverEventSource
+      config:
+        name: arch_csx 
+        url: 'http://xf23id-ca.cs.nsls2.local:17668'
+    - module: databroker.eventsource.archiver
+      class: ArchiverEventSource
+      config:
+        name: arch_acc
+        url: 'http://arcapp01.cs.nsls2.local:17668'
+        pvs:
+          test_watT: 'UT:SB1-Cu:1{}T:Prmry-I'
 
