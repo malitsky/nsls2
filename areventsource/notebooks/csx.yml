@@ -1,0 +1,28 @@
+description: 'CSX raw data'
+metadatastore:
+  module: 'databroker.headersource.mongo'
+  class: 'MDS'
+  config:
+    host: 'xf23id-broker'
+    port: 27017
+    database: 'datastore2'
+    timezone: 'US/Eastern'
+    auth: false
+assets:
+  module: 'databroker.assets.mongo'
+  class: 'Registry'
+  config:
+    host: 'xf23id-broker'
+    port: 27017
+    database: 'filestore'
+event_sources:
+- config:
+    url: 'http://arcapp01.cs.nsls2.local:17668'
+    name: 'arch_acc'
+  module: 'databroker.eventsource.archiver'
+  class: 'ArchiverEventSource'
+- config:
+    url: 'http://xf23id-ca.cs.nsls2.local:17668'
+    name: 'arch_csx'
+  module: 'databroker.eventsource.archiver'
+  class: 'ArchiverEventSource'
